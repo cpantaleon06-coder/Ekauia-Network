@@ -19,7 +19,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "sandbox:order": "pnpm --filter @ecahuil/core... run build && node --env-file=../../.env dist/cli/sandbox-order.js"
   },
   "dependencies": {
     "@ecahuil/contracts": "workspace:*",

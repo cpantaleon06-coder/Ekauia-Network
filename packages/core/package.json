@@ -22,6 +22,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@ecahuil/contracts": "workspace:*"
+    "@ecahuil/contracts": "workspace:*",
+    "zod": "^4.6.5"
   }
 }

@@ -3,17 +3,8 @@
 // The script loads the repository's .env through Node's --env-file flag; it never prints it.
 import { PayPalClient } from '../paypal/client.js';
 import { PayPalConfigError, loadPayPalConfig } from '../paypal/config.js';
-import { PayPalApiError, PayPalResponseError } from '../paypal/errors.js';
+import { failureLines } from '../sandbox/failure-lines.js';
 import { DEFAULT_AMOUNT_CENTS, runSandboxOrder } from '../sandbox/run-sandbox-order.js';
-import { ApprovalTimeoutError, OrderNotApprovableError } from '../sandbox/wait-for-approval.js';
-
-const KNOWN_ERRORS = [
-  PayPalConfigError,
-  PayPalApiError,
-  PayPalResponseError,
-  ApprovalTimeoutError,
-  OrderNotApprovableError,
-];
 
 function parseAmountCents(args: readonly string[]): number {
   const [value] = args.filter((arg) => arg !== '--');
@@ -42,10 +33,8 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (error) {
-  if (error instanceof RangeError || KNOWN_ERRORS.some((type) => error instanceof type)) {
-    console.error((error as Error).message);
-  } else {
-    console.error('Unexpected error:', error instanceof Error ? error.message : String(error));
+  for (const line of failureLines(error)) {
+    console.error(line);
   }
   process.exitCode = 1;
 }

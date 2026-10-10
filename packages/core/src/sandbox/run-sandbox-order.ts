@@ -1,8 +1,26 @@
 import { decimalStringToCents } from '../money.js';
 import type { PayPalClient } from '../paypal/client.js';
-import { PayPalResponseError } from '../paypal/errors.js';
-import { approvalLink, firstCapture, type PayPalMoney } from '../paypal/schemas.js';
+import { PayPalApiError, PayPalResponseError } from '../paypal/errors.js';
+import {
+  approvalLink,
+  firstCapture,
+  type PayPalMoney,
+  type PayPalOrder,
+} from '../paypal/schemas.js';
 import { waitForApproval, type PollingClock } from './wait-for-approval.js';
+
+/** PayPal refused to capture an approved order. Not retried; `cause` holds PayPal's error. */
+export class CaptureFailedError extends Error {
+  override readonly name = 'CaptureFailedError';
+  readonly orderId: string;
+  readonly debugId: string | undefined;
+
+  constructor(orderId: string, cause: PayPalApiError) {
+    super(`Capture failed for order ${orderId}: ${cause.message}`, { cause });
+    this.orderId = orderId;
+    this.debugId = cause.debugId;
+  }
+}
 
 export const RETURN_URL = 'https://example.com/return';
 export const CANCEL_URL = 'https://example.com/cancel';
@@ -60,7 +78,12 @@ export async function runSandboxOrder(options: SandboxOrderOptions): Promise<San
     },
   });
 
-  const captured = await client.captureOrder(order.id);
+  let captured: PayPalOrder;
+  try {
+    captured = await client.captureOrder(order.id);
+  } catch (error) {
+    throw error instanceof PayPalApiError ? new CaptureFailedError(order.id, error) : error;
+  }
   const capture = firstCapture(captured);
   print(`Final order status: ${captured.status}`);
   print(`Capture id: ${capture?.id ?? '(none)'} (status ${capture?.status ?? 'unknown'})`);

@@ -68,5 +68,6 @@ root `.env` itself. It then:
    placeholder and can be closed.
 
 If the order is not approved within 5 minutes, the script stops with a clear message and exits
-with code 1, without capturing anything. Lines starting with `[paypal]` show each request and its
+with code 1, without capturing anything. If PayPal refuses the capture, the script writes the
+error and its `debug_id` and exits with code 1; it does not retry the capture. Lines starting with `[paypal]` show each request and its
 `debug_id`, which helps when something fails.

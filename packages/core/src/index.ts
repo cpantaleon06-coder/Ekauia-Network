@@ -1,6 +1,7 @@
 export { centsToDecimalString, decimalStringToCents } from './money.js';
 export * from './paypal/index.js';
 export {
+  CaptureFailedError,
   runSandboxOrder,
   type SandboxOrderOptions,
   type SandboxOrderResult,

@@ -8,7 +8,8 @@ The claims pipeline, rule authorization and the only package that talks to PayPa
 
 - `getAccessToken()`: OAuth2 client credentials. The token is cached and renewed 60 seconds
   before it expires (or at half its lifetime, if that is shorter). Concurrent callers share one
-  token request.
+  token request. If PayPal answers 401 to a request made with a cached token, the client drops
+  that token, gets a new one and retries the request once, reusing the same `PayPal-Request-Id`.
 - `createOrder({ amountCents, returnUrl, cancelUrl, userAction })`, `getOrder(id)` and
   `captureOrder(id)` against Orders v2. `createOrder` and `captureOrder` send a fresh
   `PayPal-Request-Id`.

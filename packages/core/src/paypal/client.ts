@@ -140,30 +140,48 @@ export class PayPalClient {
     schema: S,
     options: { mutating?: boolean; body?: unknown } = {},
   ): Promise<z.output<S>> {
-    const token = await this.getAccessToken();
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
+    // One id per logical request: a retry reuses it, so PayPal never applies the change twice.
+    const requestId = options.mutating === true ? this.#requestId() : undefined;
+    const send = async (): Promise<Response> => {
+      const token = await this.getAccessToken();
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      };
+      let line = `${method} ${path}`;
+      if (requestId !== undefined) {
+        headers['PayPal-Request-Id'] = requestId;
+        headers.Prefer = 'return=representation';
+        line += ` (PayPal-Request-Id ${requestId})`;
+      }
+      this.#log(line);
+      const response = await this.#fetch(`${this.#config.apiBase}${path}`, {
+        method,
+        headers,
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      });
+      this.#logResponse(method, path, response);
+      return response;
     };
-    let line = `${method} ${path}`;
-    if (options.mutating === true) {
-      const requestId = this.#requestId();
-      headers['PayPal-Request-Id'] = requestId;
-      headers.Prefer = 'return=representation';
-      line += ` (PayPal-Request-Id ${requestId})`;
+
+    const usedCachedToken = this.#hasCachedToken();
+    let response = await send();
+    if (response.status === 401 && usedCachedToken) {
+      // PayPal rejected a token we still considered valid (revoked or expired early): drop it,
+      // get a new one and retry once.
+      this.#log(`401 ${method} ${path}: cached token rejected, retrying once with a new token`);
+      this.#token = undefined;
+      response = await send();
     }
-    this.#log(line);
-    const response = await this.#fetch(`${this.#config.apiBase}${path}`, {
-      method,
-      headers,
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-    });
-    this.#logResponse(method, path, response);
     if (!response.ok) {
       throw await toPayPalApiError(response);
     }
     return parseBody(response, schema, `${method} ${path}`);
+  }
+
+  #hasCachedToken(): boolean {
+    return this.#token !== undefined && this.#now() < this.#token.refreshAtMs;
   }
 
   #logResponse(method: string, path: string, response: Response): void {

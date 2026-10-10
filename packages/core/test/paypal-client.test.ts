@@ -253,6 +253,82 @@ describe('PayPalClient errors', () => {
   });
 });
 
+describe('PayPalClient when PayPal rejects a cached token', () => {
+  const unauthorized = () =>
+    jsonResponse(401, {
+      error: 'invalid_token',
+      error_description: 'Token signature verification failed',
+    });
+
+  /** Answers API calls from `statuses` in order (then 200), and records them. */
+  function answering(statuses: number[]) {
+    let call = 0;
+    return scriptedFetch(() => {
+      const status = statuses[call] ?? 200;
+      call += 1;
+      return status === 401
+        ? unauthorized()
+        : jsonResponse(status, orderBody('ORDER-1', 'APPROVED'));
+    });
+  }
+
+  it('gets a new token and retries the request once', async () => {
+    const paypal = answering([200, 401, 200]);
+    const client = new PayPalClient({ config, fetch: paypal.fetch });
+
+    await client.getOrder('ORDER-1');
+    const order = await client.getOrder('ORDER-1');
+
+    expect(order.status).toBe('APPROVED');
+    expect(paypal.tokenRequests()).toHaveLength(2);
+    expect(paypal.apiRequests().map((request) => request.headers.Authorization)).toEqual([
+      'Bearer token-1',
+      'Bearer token-1',
+      'Bearer token-2',
+    ]);
+  });
+
+  it('reuses the same PayPal-Request-Id when it retries a mutating request', async () => {
+    const paypal = answering([200, 401, 201]);
+    const client = new PayPalClient({ config, fetch: paypal.fetch, requestId: sequentialIds() });
+
+    await client.getOrder('ORDER-1');
+    await client.captureOrder('ORDER-1');
+
+    const captures = paypal.apiRequests().filter((request) => request.url.endsWith('/capture'));
+    expect(captures.map((request) => request.headers['PayPal-Request-Id'])).toEqual([
+      'request-1',
+      'request-1',
+    ]);
+    expect(captures.map((request) => request.headers.Authorization)).toEqual([
+      'Bearer token-1',
+      'Bearer token-2',
+    ]);
+  });
+
+  it('retries only once', async () => {
+    const paypal = answering([200, 401, 401, 200]);
+    const client = new PayPalClient({ config, fetch: paypal.fetch });
+
+    await client.getOrder('ORDER-1');
+    await expect(client.getOrder('ORDER-1')).rejects.toMatchObject({
+      status: 401,
+      errorName: 'invalid_token',
+    });
+    expect(paypal.apiRequests()).toHaveLength(3);
+    expect(paypal.tokenRequests()).toHaveLength(2);
+  });
+
+  it('does not retry when the rejected token was just issued', async () => {
+    const paypal = answering([401]);
+    const client = new PayPalClient({ config, fetch: paypal.fetch });
+
+    await expect(client.getOrder('ORDER-1')).rejects.toMatchObject({ status: 401 });
+    expect(paypal.apiRequests()).toHaveLength(1);
+    expect(paypal.tokenRequests()).toHaveLength(1);
+  });
+});
+
 describe('PayPalClient logging', () => {
   it('never logs or throws credentials, tokens or Authorization headers', async () => {
     const consoleLines: string[] = [];
